@@ -101,7 +101,8 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
         mThread(thread),
         mClient(client),
         mCblk(NULL),
-        // mBuffer
+        mBuffer(NULL),
+        //mBufferEnd(NULL),
         mState(IDLE),
         mSampleRate(sampleRate),
         mFormat(format),
