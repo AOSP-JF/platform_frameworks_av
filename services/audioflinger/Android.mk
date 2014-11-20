@@ -85,15 +85,7 @@ LOCAL_STATIC_LIBRARIES := \
     libcpustats \
     libmedia_helper
 
-#QTI Resampler
-ifeq ($(call is-vendor-board-platform,QCOM),true)
-ifeq ($(strip $(AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER)),true)
-LOCAL_CFLAGS += -DQTI_RESAMPLER
-endif
-endif
-#QTI Resampler
-
-LOCAL_CFLAGS += -Os
+LOCAL_CFLAGS += -std=gnu++11
 
 LOCAL_MODULE:= libaudioflinger
 LOCAL_32_BIT_ONLY := true
@@ -197,6 +189,7 @@ endif
 #QTI Resampler
 
 LOCAL_MODULE := libaudioresampler
+LOCAL_CFLAGS += -std=gnu++11
 
 include $(BUILD_SHARED_LIBRARY)
 
