@@ -32,6 +32,8 @@
 
 #include "CameraService.h"
 
+#include "CameraService.h"
+
 namespace android {
 
 typedef void (*notify_callback)(int32_t msgType,
