@@ -82,6 +82,7 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
+#define DEFAULT_SAMPLE_RATE 44100
 
 namespace {
 using android::media::Metadata;
@@ -441,6 +442,9 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
     const size_t SIZE = 256;
     char buffer[SIZE];
     String8 result;
+    SortedVector< sp<Client> > clients; //to serialise the mutex unlock & client destruction.
+    SortedVector< sp<MediaRecorderClient> > mediaRecorderClients;
+
     if (checkCallingPermission(String16("android.permission.DUMP")) == false) {
         snprintf(buffer, SIZE, "Permission Denial: "
                 "can't dump MediaPlayerService from pid=%d, uid=%d\n",
@@ -452,6 +456,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
         for (int i = 0, n = mClients.size(); i < n; ++i) {
             sp<Client> c = mClients[i].promote();
             if (c != 0) c->dump(fd, args);
+            clients.add(c);
         }
         if (mMediaRecorderClients.size() == 0) {
                 result.append(" No media recorder client\n\n");
@@ -464,6 +469,7 @@ status_t MediaPlayerService::dump(int fd, const Vector<String16>& args)
                     write(fd, result.string(), result.size());
                     result = "\n";
                     c->dump(fd, args);
+                    mediaRecorderClients.add(c);
                 }
             }
         }
@@ -1183,8 +1189,17 @@ void MediaPlayerService::Client::notify(
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
             if (client->mAudioOutput != NULL)
                 client->mAudioOutput->switchToNextOutput();
-            client->mNextClient->start();
-            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            ALOGD("gapless:current track played back");
+            ALOGD("gapless:try to do a gapless switch to next track");
+            status_t ret;
+            ret = client->mNextClient->start();
+            if (ret == NO_ERROR) {
+                client->mNextClient->mClient->notify(MEDIA_INFO,
+                        MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            } else {
+                client->mClient->notify(MEDIA_ERROR, MEDIA_ERROR_UNKNOWN , 0, obj);
+                ALOGW("gapless:start playback for next track failed");
+            }
         }
     }
 
@@ -1231,6 +1246,22 @@ void MediaPlayerService::Client::addNewMetadataUpdate(media::Metadata::Type meta
     }
 }
 
+status_t MediaPlayerService::Client::suspend()
+{
+    ALOGV("[%d] suspend", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->suspend();
+}
+
+status_t MediaPlayerService::Client::resume()
+{
+    ALOGV("[%d] resume", mConnId);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) return NO_INIT;
+    return p->resume();
+}
+
 #if CALLBACK_ANTAGONIZER
 const int Antagonizer::interval = 10000; // 10 msecs
 
@@ -1266,6 +1297,142 @@ int Antagonizer::callbackThread(void* user)
 }
 #endif
 
+<<<<<<< HEAD
+=======
+status_t MediaPlayerService::decode(
+        const sp<IMediaHTTPService> &httpService,
+        const char* url,
+        uint32_t *pSampleRate,
+        int* pNumChannels,
+        audio_format_t* pFormat,
+        const sp<IMemoryHeap>& heap,
+        size_t *pSize)
+{
+    ALOGV("decode(%s)", url);
+    sp<MediaPlayerBase> player;
+    status_t status = BAD_VALUE;
+    status_t err = OK;
+
+    // Protect our precious, precious DRMd ringtones by only allowing
+    // decoding of http, but not filesystem paths or content Uris.
+    // If the application wants to decode those, it should open a
+    // filedescriptor for them and use that.
+    if (url != NULL && strncmp(url, "http://", 7) != 0) {
+        ALOGD("Can't decode %s by path, use filedescriptor instead", url);
+        return BAD_VALUE;
+    }
+
+    player_type playerType =
+        MediaPlayerFactory::getPlayerType(NULL /* client */, url);
+    ALOGV("player type = %d", playerType);
+
+    // create the right type of player
+    sp<AudioCache> cache = new AudioCache(heap);
+    player = MediaPlayerFactory::createPlayer(playerType, cache.get(), cache->notify);
+    if (player == NULL) goto Exit;
+    if (player->hardwareOutput()) goto Exit;
+
+    static_cast<MediaPlayerInterface*>(player.get())->setAudioSink(cache);
+
+    // set data source
+    if (player->setDataSource(httpService, url) != NO_ERROR) goto Exit;
+
+    ALOGV("prepare");
+    player->prepareAsync();
+
+    ALOGV("wait for prepare");
+    if (cache->wait() != NO_ERROR) goto Exit;
+
+    ALOGV("start");
+    err = player->start();
+    if (err != NO_ERROR) {
+        ALOGE("Error: %d Starting player in decode", err);
+        goto Exit;
+    }
+
+    ALOGV("wait for playback complete");
+    cache->wait();
+    // in case of error, return what was successfully decoded.
+    if (cache->size() == 0) {
+        goto Exit;
+    }
+
+    *pSize = cache->size();
+    *pSampleRate = cache->sampleRate();
+    *pNumChannels = cache->channelCount();
+    *pFormat = cache->format();
+    ALOGV("return size %d sampleRate=%u, channelCount = %d, format = %d",
+          *pSize, *pSampleRate, *pNumChannels, *pFormat);
+    status = NO_ERROR;
+
+Exit:
+    if (player != 0) player->reset();
+    return status;
+}
+
+status_t MediaPlayerService::decode(int fd, int64_t offset, int64_t length,
+                                       uint32_t *pSampleRate, int* pNumChannels,
+                                       audio_format_t* pFormat,
+                                       const sp<IMemoryHeap>& heap, size_t *pSize)
+{
+    ALOGV("decode(%d, %lld, %lld)", fd, offset, length);
+    sp<MediaPlayerBase> player;
+    status_t status = BAD_VALUE;
+    status_t err = OK;
+
+    player_type playerType = MediaPlayerFactory::getPlayerType(NULL /* client */,
+                                                               fd,
+                                                               offset,
+                                                               length);
+    ALOGV("player type = %d", playerType);
+
+    // create the right type of player
+    sp<AudioCache> cache = new AudioCache(heap);
+    player = MediaPlayerFactory::createPlayer(playerType, cache.get(), cache->notify);
+    if (player == NULL) goto Exit;
+    if (player->hardwareOutput()) goto Exit;
+
+    static_cast<MediaPlayerInterface*>(player.get())->setAudioSink(cache);
+
+    // set data source
+    if (player->setDataSource(fd, offset, length) != NO_ERROR) goto Exit;
+
+    ALOGV("prepare");
+    player->prepareAsync();
+
+    ALOGV("wait for prepare");
+    if (cache->wait() != NO_ERROR) goto Exit;
+
+    ALOGV("start");
+    err = player->start();
+    if (err != NO_ERROR) {
+        ALOGE("Error: %d Starting player in decode", err);
+        goto Exit;
+    }
+
+    ALOGV("wait for playback complete");
+    cache->wait();
+    // in case of error, return what was successfully decoded.
+    if (cache->size() == 0) {
+        goto Exit;
+    }
+
+    *pSize = cache->size();
+    *pSampleRate = cache->sampleRate();
+    *pNumChannels = cache->channelCount();
+    *pFormat = cache->format();
+    ALOGV("return size %d, sampleRate=%u, channelCount = %d, format = %d",
+          *pSize, *pSampleRate, *pNumChannels, *pFormat);
+    status = NO_ERROR;
+
+Exit:
+    if (player != 0) player->reset();
+    ::close(fd);
+    return status;
+}
+
+
+>>>>>>> 077a3eb... Fixed Audio and Camera
 #undef LOG_TAG
 #define LOG_TAG "AudioSink"
 MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
@@ -1289,6 +1456,7 @@ MediaPlayerService::AudioOutput::AudioOutput(int sessionId, int uid, int pid,
     mSendLevel = 0.0;
     setMinBufferCount();
     mAttributes = attr;
+    mBitWidth = 16;
 }
 
 MediaPlayerService::AudioOutput::~AudioOutput()
@@ -1348,6 +1516,13 @@ uint32_t MediaPlayerService::AudioOutput::latency () const
     return mTrack->latency();
 }
 
+#ifdef QCOM_DIRECTTRACK
+audio_stream_type_t MediaPlayerService::AudioOutput::streamType () const
+{
+    return mStreamType;
+}
+#endif
+
 float MediaPlayerService::AudioOutput::msecsPerFrame() const
 {
     return mMsecsPerFrame;
@@ -1364,6 +1539,27 @@ status_t MediaPlayerService::AudioOutput::getTimestamp(AudioTimestamp &ts) const
     if (mTrack == 0) return NO_INIT;
     return mTrack->getTimestamp(ts);
 }
+
+#ifdef QCOM_DIRECTTRACK
+ssize_t MediaPlayerService::AudioOutput::sampleRate() const
+{
+    if (mTrack == 0) return NO_INIT;
+    return DEFAULT_SAMPLE_RATE;
+}
+
+status_t MediaPlayerService::AudioOutput::getTimeStamp(uint64_t *tstamp)
+{
+    if (tstamp == 0) return BAD_VALUE;
+    if (mTrack == 0) return NO_INIT;
+    mTrack->getTimeStamp(tstamp);
+    return NO_ERROR;
+}
+
+ssize_t MediaPlayerService::AudioCache::sampleRate() const
+{
+    return mSampleRate;
+}
+#endif
 
 status_t MediaPlayerService::AudioOutput::getFramesWritten(uint32_t *frameswritten) const
 {
@@ -1425,6 +1621,56 @@ status_t MediaPlayerService::AudioOutput::open(
     mCallback = cb;
     mCallbackCookie = cookie;
 
+#ifdef QCOM_DIRECTTRACK
+    if (flags & AUDIO_OUTPUT_FLAG_LPA || flags & AUDIO_OUTPUT_FLAG_TUNNEL) {
+        ALOGV("AudioOutput open: with flags %x",flags);
+        channelMask = audio_channel_out_mask_from_count(channelCount);
+        if (0 == channelMask) {
+            ALOGE("open() error, can't derive mask for %d audio channels", channelCount);
+            return NO_INIT;
+        }
+        AudioTrack *audioTrack = NULL;
+        CallbackData *newcbd = NULL;
+        if (mCallback != NULL) {
+            newcbd = new CallbackData(this);
+            audioTrack = new AudioTrack(
+                             mStreamType,
+                             sampleRate,
+                             format,
+                             channelMask,
+                             0,
+                             flags,
+                             CallbackWrapper,
+                             newcbd,
+                             0,
+                             mSessionId,
+                             AudioTrack::TRANSFER_DEFAULT,
+                             NULL,
+                             -1,
+                             -1,
+                             mAttributes);
+            if ((audioTrack == 0) || (audioTrack->initCheck() != NO_ERROR)) {
+                ALOGE("Unable to create audio track");
+                delete audioTrack;
+                delete newcbd;
+                return NO_INIT;
+            }
+        } else {
+            ALOGE("no callback supplied");
+            return NO_INIT;
+        }
+        deleteRecycledTrack();
+
+        mStreamType = audioTrack->streamType();
+        ALOGV("setVolume");
+        mCallbackData = newcbd;
+        audioTrack->setVolume(mLeftVolume, mRightVolume);
+        mSampleRateHz = sampleRate;
+        mFlags = flags;
+        mTrack = audioTrack;
+        return NO_ERROR;
+    }
+#endif
     // Check argument "bufferCount" against the mininum buffer count
     if (bufferCount < mMinBufferCount) {
         ALOGD("bufferCount (%d) is too small and increased to %d", bufferCount, mMinBufferCount);
@@ -1497,6 +1743,15 @@ status_t MediaPlayerService::AudioOutput::open(
         } else if (mRecycledTrack->format() != format) {
             reuse = false;
         }
+
+        if (bothOffloaded) {
+            if (mBitWidth != offloadInfo->bit_width) {
+                ALOGV("output bit width differs %d v/s %d",
+                      mBitWidth, offloadInfo->bit_width);
+                reuse = false;
+            }
+        }
+
     } else {
         ALOGV("no track available to recycle");
     }
@@ -1608,6 +1863,13 @@ status_t MediaPlayerService::AudioOutput::open(
     mSampleRateHz = sampleRate;
     mFlags = flags;
     mMsecsPerFrame = mPlaybackRatePermille / (float) sampleRate;
+
+    if (offloadInfo) {
+        mBitWidth = offloadInfo->bit_width;
+    } else {
+        mBitWidth = 16;
+    }
+
     uint32_t pos;
     if (t->getPosition(&pos) == OK) {
         mBytesWritten = uint64_t(pos) * t->frameSize();
@@ -1615,7 +1877,7 @@ status_t MediaPlayerService::AudioOutput::open(
     mTrack = t;
 
     status_t res = NO_ERROR;
-    if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
+    if ((t->getFlags() & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_DIRECT)) == 0) {
         res = t->setSampleRate(mPlaybackRatePermille * mSampleRateHz / 1000);
         if (res == NO_ERROR) {
             t->setAuxEffectSendLevel(mSendLevel);
@@ -1660,13 +1922,12 @@ void MediaPlayerService::AudioOutput::switchToNextOutput() {
         mNextOutput->mMsecsPerFrame = mMsecsPerFrame;
         mNextOutput->mBytesWritten = mBytesWritten;
         mNextOutput->mFlags = mFlags;
+        mNextOutput->mBitWidth = mBitWidth;
     }
 }
 
 ssize_t MediaPlayerService::AudioOutput::write(const void* buffer, size_t size)
 {
-    LOG_ALWAYS_FATAL_IF(mCallback != NULL, "Don't call write if supplying a callback.");
-
     //ALOGV("write(%p, %u)", buffer, size);
     if (mTrack != 0) {
         ssize_t ret = mTrack->write(buffer, size);
@@ -1771,7 +2032,6 @@ void MediaPlayerService::AudioOutput::CallbackWrapper(
         size_t actualSize = (*me->mCallback)(
                 me, buffer->raw, buffer->size, me->mCallbackCookie,
                 CB_EVENT_FILL_BUFFER);
-
         if ((me->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0 &&
             actualSize == 0 && buffer->size > 0 && me->mNextOutput == NULL) {
             // We've reached EOS but the audio track is not stopped yet,
@@ -1796,6 +2056,50 @@ void MediaPlayerService::AudioOutput::CallbackWrapper(
         (*me->mCallback)(me,  NULL /* buffer */, 0 /* size */,
                 me->mCallbackCookie, CB_EVENT_TEAR_DOWN);
         break;
+
+#ifdef QCOM_DIRECTTRACK
+    case AudioTrack::EVENT_UNDERRUN :
+        {
+        ALOGW("Event underrun");
+      //  CallbackData *data = (CallbackData*)cookie;
+        //data->lock();
+        //AudioOutput *me = data->getOutput();
+        //if (me == NULL) {
+            // no output set, likely because the track was scheduled to be reused
+            // by another player, but the format turned out to be incompatible.
+          //  data->unlock();
+            //return;
+        //}
+        ALOGD("Callback!!!");
+        (*me->mCallback)(
+            me, NULL, (size_t)AudioTrack::EVENT_UNDERRUN, me->mCallbackCookie, CB_EVENT_UNDERRUN);
+        //data->unlock();
+        break;
+       }
+
+    case AudioTrack::EVENT_HW_FAIL :
+       {
+        ALOGW("Event hardware failure");
+        //CallbackData *data1 = (CallbackData*)cookie;
+       // if (data1 != NULL) {
+           // data1->lock();
+         //   AudioOutput *me1 = data1->getOutput();
+          //  if (me == NULL) {
+                // no output set, likely because the track was
+                // scheduled to be reused
+                // by another player, but the format turned out
+                // to be incompatible.
+            //    data->unlock();
+          //      return;
+            //}
+            ALOGV("Callback!!!");
+            (*me->mCallback)(me, NULL, (size_t)AudioTrack::EVENT_HW_FAIL,
+                             me->mCallbackCookie, CB_EVENT_HW_FAIL);
+            //data->unlock();
+        // }
+         break;
+       }
+#endif
 
     default:
         ALOGE("received unknown event type: %d inside CallbackWrapper !", event);
@@ -1882,6 +2186,148 @@ bool CallbackThread::threadLoop() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+<<<<<<< HEAD
+=======
+status_t MediaPlayerService::AudioCache::open(
+        uint32_t sampleRate, int channelCount, audio_channel_mask_t channelMask,
+        audio_format_t format, int bufferCount,
+        AudioCallback cb, void *cookie, audio_output_flags_t /*flags*/,
+        const audio_offload_info_t* /*offloadInfo*/)
+{
+    ALOGV("open(%u, %d, 0x%x, %d, %d)", sampleRate, channelCount, channelMask, format, bufferCount);
+    if (mHeap->getHeapID() < 0) {
+        ALOGE("Invalid heap Id");
+        return NO_INIT;
+    }
+
+    mSampleRate = sampleRate;
+    mChannelCount = (uint16_t)channelCount;
+    mFormat = format;
+    mMsecsPerFrame = 1.e3 / (float) sampleRate;
+    mFrameSize =  audio_is_linear_pcm(mFormat)
+            ? mChannelCount * audio_bytes_per_sample(mFormat) : 1;
+
+    if (cb == NULL) {
+        // Use buffer of size equal to that of the heap if AudioCache used by NuPlayer.
+        // Otherwise use default buffersize.
+        mFrameCount = mHeap->getSize() / mFrameSize;
+    }
+
+    if (cb != NULL) {
+        mCallbackThread = new CallbackThread(this, cb, cookie);
+    }
+    return NO_ERROR;
+}
+
+status_t MediaPlayerService::AudioCache::start() {
+    if (mCallbackThread != NULL) {
+        mCallbackThread->run("AudioCache callback");
+    }
+    return NO_ERROR;
+}
+
+void MediaPlayerService::AudioCache::stop() {
+    if (mCallbackThread != NULL) {
+        mCallbackThread->requestExitAndWait();
+    }
+}
+
+ssize_t MediaPlayerService::AudioCache::write(const void* buffer, size_t size)
+{
+    ALOGV("write(%p, %u)", buffer, size);
+    if ((buffer == 0) || (size == 0)) return size;
+
+    uint8_t* p = static_cast<uint8_t*>(mHeap->getBase());
+    if (p == NULL) return NO_INIT;
+    p += mSize;
+    ALOGV("memcpy(%p, %p, %u)", p, buffer, size);
+
+    bool overflow = mSize + size > mHeap->getSize();
+    if (overflow) {
+        ALOGE("Heap size overflow! req size: %d, max size: %d", (mSize + size), mHeap->getSize());
+        size = mHeap->getSize() - mSize;
+    }
+    size -= size % mFrameSize; // consume only integral amounts of frame size
+    memcpy(p, buffer, size);
+    mSize += size;
+
+    if (overflow) {
+        // Signal heap filled here (last frame may be truncated).
+        // After this point, no more data should be written as the
+        // heap is filled and the AudioCache should be effectively
+        // immutable with respect to future writes.
+        //
+        // It is thus safe for another thread to read the AudioCache.
+        Mutex::Autolock lock(mLock);
+        mCommandComplete = true;
+        mSignal.signal();
+    }
+    return size;
+}
+
+// call with lock held
+status_t MediaPlayerService::AudioCache::wait()
+{
+    Mutex::Autolock lock(mLock);
+    while (!mCommandComplete) {
+        mSignal.wait(mLock);
+    }
+    mCommandComplete = false;
+
+    if (mError == NO_ERROR) {
+        ALOGV("wait - success");
+    } else {
+        ALOGV("wait - error");
+    }
+    return mError;
+}
+
+void MediaPlayerService::AudioCache::notify(
+        void* cookie, int msg, int ext1, int ext2, const Parcel* /*obj*/)
+{
+    ALOGV("notify(%p, %d, %d, %d)", cookie, msg, ext1, ext2);
+    AudioCache* p = static_cast<AudioCache*>(cookie);
+
+    // ignore buffering messages
+    switch (msg)
+    {
+    case MEDIA_ERROR:
+        ALOGE("Error %d, %d occurred", ext1, ext2);
+        break;
+    case MEDIA_PREPARED:
+        ALOGV("prepared");
+        break;
+    case MEDIA_PLAYBACK_COMPLETE:
+        ALOGV("playback complete");
+        break;
+    default:
+        ALOGV("ignored");
+        return;
+    }
+
+    // wake up thread
+    Mutex::Autolock lock(p->mLock);
+    if (msg == MEDIA_ERROR) {
+        p->mError = ext1;
+    }
+    p->mCommandComplete = true;
+    p->mSignal.signal();
+}
+
+int MediaPlayerService::AudioCache::getSessionId() const
+{
+    return 0;
+}
+
+uint32_t MediaPlayerService::AudioCache::getSampleRate() const
+{
+    if (mMsecsPerFrame == 0) {
+        return 0;
+    }
+    return (uint32_t)(1.e3 / mMsecsPerFrame);
+}
+
+>>>>>>> 077a3eb... Fixed Audio and Camera
 void MediaPlayerService::addBatteryData(uint32_t params)
 {
     Mutex::Autolock lock(mLock);
@@ -2070,4 +2516,7 @@ status_t MediaPlayerService::pullBatteryData(Parcel* reply) {
     }
     return NO_ERROR;
 }
+
+
+
 } // namespace android

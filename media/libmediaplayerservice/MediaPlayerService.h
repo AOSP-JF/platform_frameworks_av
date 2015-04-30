@@ -1,5 +1,8 @@
 /*
 **
+** Copyright (c) 2013, The Linux Foundation. All rights reserved.
+** Not a Contribution.
+**
 ** Copyright 2008, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -82,6 +85,9 @@ class MediaPlayerService : public BnMediaPlayerService
         virtual ssize_t         channelCount() const;
         virtual ssize_t         frameSize() const;
         virtual uint32_t        latency() const;
+#ifdef QCOM_DIRECTTRACK
+        virtual audio_stream_type_t streamType() const;
+#endif
         virtual float           msecsPerFrame() const;
         virtual status_t        getPosition(uint32_t *position) const;
         virtual status_t        getTimestamp(AudioTimestamp &ts) const;
@@ -118,8 +124,14 @@ class MediaPlayerService : public BnMediaPlayerService
                 void            setNextOutput(const sp<AudioOutput>& nextOutput);
                 void            switchToNextOutput();
         virtual bool            needsTrailingPadding() { return mNextOutput == NULL; }
+
         virtual status_t        setParameters(const String8& keyValuePairs);
         virtual String8         getParameters(const String8& keys);
+
+#ifdef QCOM_DIRECTTRACK
+        virtual ssize_t         sampleRate() const;
+        virtual status_t        getTimeStamp(uint64_t *tstamp);
+#endif
 
     private:
         static void             setMinBufferCount();
@@ -149,6 +161,7 @@ class MediaPlayerService : public BnMediaPlayerService
         static bool             mIsOnEmulator;
         static int              mMinBufferCount;  // 12 for emulator; otherwise 4
         audio_output_flags_t    mFlags;
+        uint16_t                mBitWidth;
 
         // CallbackData is what is passed to the AudioTrack as the "user" data.
         // We need to be able to target this to a different Output on the fly,
@@ -183,6 +196,82 @@ class MediaPlayerService : public BnMediaPlayerService
     }; // AudioOutput
 
 
+<<<<<<< HEAD
+=======
+    class AudioCache : public MediaPlayerBase::AudioSink
+    {
+    public:
+                                AudioCache(const sp<IMemoryHeap>& heap);
+        virtual                 ~AudioCache() {}
+
+        virtual bool            ready() const { return (mChannelCount > 0) && (mHeap->getHeapID() > 0); }
+        virtual bool            realtime() const { return false; }
+        virtual ssize_t         bufferSize() const { return frameSize() * mFrameCount; }
+        virtual ssize_t         frameCount() const { return mFrameCount; }
+        virtual ssize_t         channelCount() const { return (ssize_t)mChannelCount; }
+        virtual ssize_t         frameSize() const { return (ssize_t)mFrameSize; }
+        virtual uint32_t        latency() const;
+        virtual float           msecsPerFrame() const;
+        virtual status_t        getPosition(uint32_t *position) const;
+        virtual status_t        getTimestamp(AudioTimestamp &ts) const;
+        virtual status_t        getFramesWritten(uint32_t *frameswritten) const;
+        virtual int             getSessionId() const;
+        virtual uint32_t        getSampleRate() const;
+
+        virtual status_t        open(
+                uint32_t sampleRate, int channelCount, audio_channel_mask_t channelMask,
+                audio_format_t format, int bufferCount = 1,
+                AudioCallback cb = NULL, void *cookie = NULL,
+                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                const audio_offload_info_t *offloadInfo = NULL);
+
+        virtual status_t        start();
+        virtual ssize_t         write(const void* buffer, size_t size);
+        virtual void            stop();
+        virtual void            flush() {}
+        virtual void            pause() {}
+        virtual void            close() {}
+                void            setAudioStreamType(audio_stream_type_t streamType __unused) {}
+                // stream type is not used for AudioCache
+        virtual audio_stream_type_t getAudioStreamType() const { return AUDIO_STREAM_DEFAULT; }
+
+                void            setVolume(float left __unused, float right __unused) {}
+        virtual status_t        setPlaybackRatePermille(int32_t ratePermille __unused) { return INVALID_OPERATION; }
+#ifdef QCOM_DIRECTTRACK
+        virtual ssize_t         sampleRate() const;
+#else
+                uint32_t        sampleRate() const { return mSampleRate; }
+#endif
+                audio_format_t  format() const { return mFormat; }
+                size_t          size() const { return mSize; }
+                status_t        wait();
+
+                sp<IMemoryHeap> getHeap() const { return mHeap; }
+
+        static  void            notify(void* cookie, int msg,
+                                       int ext1, int ext2, const Parcel *obj);
+        virtual status_t        dump(int fd, const Vector<String16>& args) const;
+
+    private:
+                                AudioCache();
+
+        Mutex               mLock;
+        Condition           mSignal;
+        sp<IMemoryHeap>     mHeap;
+        float               mMsecsPerFrame;
+        uint16_t            mChannelCount;
+        audio_format_t      mFormat;
+        ssize_t             mFrameCount;
+        uint32_t            mSampleRate;
+        uint32_t            mSize;
+        size_t              mFrameSize;
+        int                 mError;
+        bool                mCommandComplete;
+
+        sp<Thread>          mCallbackThread;
+    }; // AudioCache
+
+>>>>>>> 077a3eb... Fixed Audio and Camera
 public:
     static  void                instantiate();
 
@@ -303,6 +392,9 @@ private:
         virtual status_t        dump(int fd, const Vector<String16>& args) const;
 
                 int             getAudioSessionId() { return mAudioSessionId; }
+
+        virtual status_t        suspend();
+        virtual status_t        resume();
 
     private:
         friend class MediaPlayerService;

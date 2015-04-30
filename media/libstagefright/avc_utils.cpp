@@ -63,7 +63,7 @@ static void skipScalingList(ABitReader *br, size_t sizeOfScalingList) {
 void FindAVCDimensions(
         const sp<ABuffer> &seqParamSet,
         int32_t *width, int32_t *height,
-        int32_t *sarWidth, int32_t *sarHeight) {
+        int32_t *sarWidth, int32_t *sarHeight, int32_t *isInterlaced) {
     ABitReader br(seqParamSet->data() + 1, seqParamSet->size() - 1);
 
     unsigned profile_idc = br.getBits(8);
@@ -167,6 +167,10 @@ void FindAVCDimensions(
             (frame_crop_left_offset + frame_crop_right_offset) * cropUnitX;
         *height -=
             (frame_crop_top_offset + frame_crop_bottom_offset) * cropUnitY;
+    }
+
+    if (isInterlaced != NULL) {
+	*isInterlaced = !frame_mbs_only_flag;
     }
 
     if (sarWidth != NULL) {
@@ -378,7 +382,7 @@ sp<MetaData> MakeAVCCodecSpecificData(const sp<ABuffer> &accessUnit) {
     meta->setInt32(kKeyWidth, width);
     meta->setInt32(kKeyHeight, height);
 
-    if (sarWidth > 1 || sarHeight > 1) {
+    if (sarWidth > 1 && sarHeight > 1) {
         // We treat 0:0 (unspecified) as 1:1.
 
         meta->setInt32(kKeySARWidth, sarWidth);

@@ -50,6 +50,7 @@ enum media_event_type {
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
     MEDIA_SUBTITLE_DATA     = 201,
+    MEDIA_QOE               = 300,
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -143,7 +144,8 @@ enum media_player_states {
     MEDIA_PLAYER_STARTED            = 1 << 4,
     MEDIA_PLAYER_PAUSED             = 1 << 5,
     MEDIA_PLAYER_STOPPED            = 1 << 6,
-    MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7
+    MEDIA_PLAYER_PLAYBACK_COMPLETE  = 1 << 7,
+    MEDIA_PLAYER_SUSPENDED          = 1 << 8
 };
 
 // Keep KEY_PARAMETER_* in sync with MediaPlayer.java.
@@ -203,6 +205,12 @@ public:
     ~MediaPlayer();
             void            died();
             void            disconnect();
+
+#ifdef SAMSUNG_CAMERA_LEGACY
+            status_t        setDataSource(
+                    const char *url,
+                    const KeyedVector<String8, String8> *headers);
+#endif
 
             status_t        setDataSource(
                     const sp<IMediaHTTPService> &httpService,

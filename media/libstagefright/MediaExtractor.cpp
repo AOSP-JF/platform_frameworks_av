@@ -40,7 +40,11 @@
 #include <media/stagefright/MetaData.h>
 #include <utils/String8.h>
 
+#include "include/ExtendedUtils.h"
+
 namespace android {
+
+MediaExtractor::Plugin MediaExtractor::sPlugin;
 
 sp<MetaData> MediaExtractor::getMetaData() {
     return new MetaData;
@@ -55,9 +59,15 @@ sp<MediaExtractor> MediaExtractor::Create(
         const sp<DataSource> &source, const char *mime) {
     sp<AMessage> meta;
 
+    bool secondPass = false;
+
     String8 tmp;
-    if (mime == NULL) {
+retry:
+    if (secondPass || mime == NULL) {
         float confidence;
+        if (secondPass) {
+            confidence = 3.14f;
+        }
         if (!source->sniff(&tmp, &confidence, &meta)) {
             ALOGV("FAILED to autodetect media content.");
 
@@ -91,8 +101,13 @@ sp<MediaExtractor> MediaExtractor::Create(
         }
     }
 
-    MediaExtractor *ret = NULL;
-    if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG4)
+    AString extractorName;
+    sp<MediaExtractor> ret = NULL;
+    if (meta.get() && meta->findString("extended-extractor-use", &extractorName)
+            && sPlugin.create) {
+        ALOGI("Use extended extractor for the special mime(%s) or codec", mime);
+        ret = sPlugin.create(source, mime, meta);
+    } else if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG4)
             || !strcasecmp(mime, "audio/mp4")) {
         ret = new MPEG4Extractor(source);
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MPEG)) {
@@ -117,8 +132,13 @@ sp<MediaExtractor> MediaExtractor::Create(
         ret = new AACExtractor(source, meta);
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG2PS)) {
         ret = new MPEG2PSExtractor(source);
+<<<<<<< HEAD
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_MIDI)) {
         ret = new MidiExtractor(source);
+=======
+    } else if (!isDrm && sPlugin.create) {
+        ret = sPlugin.create(source, mime, meta);
+>>>>>>> 077a3eb... Fixed Audio and Camera
     }
 
     if (ret != NULL) {
@@ -127,6 +147,21 @@ sp<MediaExtractor> MediaExtractor::Create(
        } else {
            ret->setDrmFlag(false);
        }
+    }
+
+#ifdef QCOM_HARDWARE
+    ret = ExtendedUtils::MediaExtractor_CreateIfNeeded(ret, source, mime);
+#endif
+
+    if (ret != NULL) {
+
+        if (!(!strcasecmp(mime, MEDIA_MIMETYPE_CONTAINER_MPEG4) &&
+                (source->flags() & DataSource::kIsCachingDataSource)) &&
+                    !isDrm && !secondPass && ( ret->countTracks() == 0 ||
+                    (!strncasecmp("video/", mime, 6) && ret->countTracks() < 2) ) ) {
+            secondPass = true;
+            goto retry;
+        }
     }
 
     return ret;

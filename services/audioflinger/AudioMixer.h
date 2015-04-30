@@ -30,6 +30,16 @@
 
 #include "AudioResampler.h"
 
+<<<<<<< HEAD
+=======
+#include <hardware/audio_effect.h>
+#ifdef HW_ACC_EFFECTS
+#include "EffectsHwAcc.h"
+#endif
+#include <system/audio.h>
+#include <media/nbaio/NBLog.h>
+
+>>>>>>> 077a3eb... Fixed Audio and Camera
 // FIXME This is actually unity gain, which might not be max in future, expressed in U.12
 #define MAX_GAIN_INT AudioMixer::UNITY_GAIN_INT
 
@@ -99,6 +109,13 @@ public:
         VOLUME0         = 0x4200,
         VOLUME1         = 0x4201,
         AUXLEVEL        = 0x4210,
+#ifdef HW_ACC_EFFECTS
+        ENABLE_HW_ACC_EFFECTS   = 0X5000,
+        DISABLE_HW_ACC_EFFECTS  = 0X5001,
+#ifdef HW_ACC_HPX
+        HW_ACC_HPX_STATE        = 0X5003,
+#endif
+#endif
     };
 
 
@@ -129,6 +146,7 @@ public:
     static inline bool isValidPcmTrackFormat(audio_format_t format) {
         return format == AUDIO_FORMAT_PCM_16_BIT ||
                 format == AUDIO_FORMAT_PCM_24_BIT_PACKED ||
+                format == AUDIO_FORMAT_PCM_8_24_BIT ||
                 format == AUDIO_FORMAT_PCM_32_BIT ||
                 format == AUDIO_FORMAT_PCM_FLOAT;
     }
@@ -225,6 +243,10 @@ private:
         float          mPrevAuxLevel;                 // floating point prev aux level
         float          mAuxInc;                       // floating point aux increment
 
+#ifdef HW_ACC_EFFECTS
+        EffectsHwAcc* hwAcc;
+        hook_t      tmpHook;
+#endif
         // 16-byte boundary
         audio_channel_mask_t mMixerChannelMask;
         uint32_t             mMixerChannelCount;
