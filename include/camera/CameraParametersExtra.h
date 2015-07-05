@@ -1,3 +1,6 @@
+// Overload this file in your device specific config if you need
+// to add extra camera parameters.
+// A typical file would look like this:
 /*
  * Copyright (C) 2014 The CyanogenMod Project
  *
@@ -13,21 +16,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+/*
 #define CAMERA_PARAMETERS_EXTRA_C \
-const char CameraParameters::KEY_SUPPORTED_ISO_MODES[] = "iso-values"; \
-const char CameraParameters::KEY_FACE_DETECTION[] = "face-detection"; \
-const char CameraParameters::KEY_SUPPORTED_FACE_DETECTION[] = "face-detection-values"; \
-const char CameraParameters::KEY_ZSL[] = "zsl"; \
-const char CameraParameters::KEY_ISO_MODE[] = "iso"; \
-const char CameraParameters::KEY_CAMERA_MODE[] = "camera-mode"; \
-const char CameraParameters::KEY_SAMSUNG_CAMERA_MODE[] = "cam_mode";
+const char CameraParameters::KEY_SUPPORTED_BURST_NUM[] = "supported-burst-num"; \
+const char CameraParameters::KEY_BURST_NUM[] = "burst-num"; \
+const char CameraParameters::KEY_SUPPORTED_HDR_MODES[] = "supported-hdr-modes"; \
+const char CameraParameters::KEY_HDR_MODE[] = "hdr-mode"; \
+const char CameraParameters::HDR_MODE_OFF[] = "hdr-mode-off"; \
+const char CameraParameters::HDR_MODE_HDR[] = "hdr-mode-hdr";
 
 #define CAMERA_PARAMETERS_EXTRA_H \
-    static const char KEY_SUPPORTED_ISO_MODES[]; \
-    static const char KEY_FACE_DETECTION[]; \
-    static const char KEY_SUPPORTED_FACE_DETECTION[]; \
-    static const char KEY_ZSL[]; \
-    static const char KEY_ISO_MODE[]; \
-    static const char KEY_CAMERA_MODE[]; \
-    static const char KEY_SAMSUNG_CAMERA_MODE[];
+    static const char KEY_SUPPORTED_BURST_NUM[]; \
+    static const char KEY_BURST_NUM[]; \
+    static const char KEY_SUPPORTED_HDR_MODES[]; \
+    static const char KEY_HDR_MODE[]; \
+    static const char HDR_MODE_OFF[]; \
+    static const char HDR_MODE_HDR[];
+*/
