@@ -124,8 +124,7 @@ void MediaCodecList::parseTopLevelXMLFile(const char *codecs_xml) {
         return;
     }
 
-    for (size_t i = mCodecInfos.size(); i > 0;) {
-        i--;
+    for (size_t i = mCodecInfos.size(); i-- > 0;) {
         const MediaCodecInfo &info = *mCodecInfos.itemAt(i).get();
 
         if (info.mCaps.size() == 0) {
