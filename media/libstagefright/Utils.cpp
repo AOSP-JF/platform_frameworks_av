@@ -244,12 +244,12 @@ status_t convertMetaDataToMessage(
 
             ptr += 6;
             size -= 6;
-            
-        sp<ABuffer> buffer = new (std::nothrow) ABuffer(1024);
-        if (buffer.get() == NULL || buffer->base() == NULL) {
-            return NO_MEMORY;
-        }
-        buffer->setRange(0, 0);
+
+            sp<ABuffer> buffer = new (std::nothrow) ABuffer(1024);
+            if (buffer.get() == NULL || buffer->base() == NULL) {
+                return NO_MEMORY;
+            }
+            buffer->setRange(0, 0);
 
             for (size_t i = 0; i < numSeqParameterSets; ++i) {
                 if (size < 2) {
@@ -268,7 +268,7 @@ status_t convertMetaDataToMessage(
                 if (err != OK) {
                     return err;
                 }
-            
+
                 ptr += length;
                 size -= length;
             }
@@ -278,11 +278,11 @@ status_t convertMetaDataToMessage(
 
             msg->setBuffer("csd-0", buffer);
 
-        buffer = new (std::nothrow) ABuffer(1024);
-        if (buffer.get() == NULL || buffer->base() == NULL) {
-            return NO_MEMORY;
-        }
-        buffer->setRange(0, 0);
+            buffer = new (std::nothrow) ABuffer(1024);
+            if (buffer.get() == NULL || buffer->base() == NULL) {
+                return NO_MEMORY;
+            }
+            buffer->setRange(0, 0);
 
             if (size < 1) {
                 ALOGE("b/23680780");
@@ -291,7 +291,7 @@ status_t convertMetaDataToMessage(
             size_t numPictureParameterSets = *ptr;
             ++ptr;
             --size;
-            
+
             for (size_t i = 0; i < numPictureParameterSets; ++i) {
                 if (size < 2) {
                     ALOGE("b/23680780");
@@ -365,7 +365,7 @@ status_t convertMetaDataToMessage(
 
                 ptr += 2;
                 size -= 2;
-                
+
                 if (size < length) {
                     return BAD_VALUE;
                 }
@@ -373,14 +373,14 @@ status_t convertMetaDataToMessage(
                 if (err != OK) {
                     return err;
                 }
-                
+
                 if ((buffer->size() + 4 + length) > buffer->capacity()) {
                     sp<ABuffer> tmpBuffer = new ABuffer(buffer->capacity() + 1024);
                     memcpy(tmpBuffer->data(), buffer->data(), buffer->size());
                     tmpBuffer->setRange(0, buffer->size());
                     buffer = tmpBuffer;
                 }
-                
+
                 ptr += length;
                 size -= length;
             }
