@@ -193,9 +193,6 @@ private:
     int32_t mVideoScalingMode;
 
     bool mStarted;
-    bool mBuffering;
-    bool mPlaying;
-    bool mSeeking;
 
     // Actual pause state, either as requested by client or due to buffering.
     bool mPaused;

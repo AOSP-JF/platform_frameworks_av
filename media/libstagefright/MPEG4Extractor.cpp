@@ -94,7 +94,6 @@
 #else
 #define DLOGD
 #endif // DOLBY_END
-
 #ifndef UINT32_MAX
 #define UINT32_MAX       (4294967295U)
 #endif
